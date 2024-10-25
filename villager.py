@@ -99,7 +99,7 @@ class SampleVillager(AbstractPlayer):
 
         Returns:
             A list of alie agents that is contained in agent_list
-            and is not equal to mysef.
+            and is not equal to myself.
         """
         return self.get_alive(self.get_others(agent_list))
 
