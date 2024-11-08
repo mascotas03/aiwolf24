@@ -18,9 +18,20 @@
 import random
 from typing import Dict, List
 
-from aiwolf import (AbstractPlayer, Agent, Content, GameInfo, GameSetting,
-                    Judge, Role, Species, Status, Talk, Topic,
-                    VoteContentBuilder)
+from aiwolf import (
+    AbstractPlayer,
+    Agent,
+    Content,
+    GameInfo,
+    GameSetting,
+    Judge,
+    Role,
+    Species,
+    Status,
+    Talk,
+    Topic,
+    VoteContentBuilder,
+)
 from aiwolf.constant import AGENT_NONE
 
 from const import CONTENT_SKIP
@@ -48,7 +59,8 @@ class SampleVillager(AbstractPlayer):
 
     def __init__(self) -> None:
         """Initialize a new instance of SampleVillager."""
-
+        with open("../aiwolf24/playground/log.txt","w"):
+            pass
         self.me = AGENT_NONE
         self.vote_candidate = AGENT_NONE
         self.game_info = None  # type: ignore
@@ -56,6 +68,7 @@ class SampleVillager(AbstractPlayer):
         self.divination_reports = []
         self.identification_reports = []
         self.talk_list_head = 0
+        self.must_white = []
 
     def is_alive(self, agent: Agent) -> bool:
         """Return whether the agent is alive.
@@ -127,9 +140,11 @@ class SampleVillager(AbstractPlayer):
         self.talk_list_head = 0
         self.vote_candidate = AGENT_NONE
 
-    def update(self, game_info: GameInfo) -> None:
+    def update(self, game_info: GameInfo) -> None: #話す直前に呼ばれる
         self.game_info = game_info  # Update game information.
-        for i in range(self.talk_list_head, len(game_info.talk_list)):  # Analyze talks that have not been analyzed yet.
+        for i in range(
+            self.talk_list_head, len(game_info.talk_list)
+        ):  # Analyze talks that have not been analyzed yet.
             tk: Talk = game_info.talk_list[i]  # The talk to be analyzed.
             talker: Agent = tk.agent
             if talker == self.me:  # Skip my talk.
@@ -138,20 +153,31 @@ class SampleVillager(AbstractPlayer):
             if content.topic == Topic.COMINGOUT:
                 self.comingout_map[talker] = content.role
             elif content.topic == Topic.DIVINED:
-                self.divination_reports.append(Judge(talker, game_info.day, content.target, content.result))
+                self.divination_reports.append(
+                    Judge(talker, game_info.day, content.target, content.result)
+                )
             elif content.topic == Topic.IDENTIFIED:
-                self.identification_reports.append(Judge(talker, game_info.day, content.target, content.result))
+                self.identification_reports.append(
+                    Judge(talker, game_info.day, content.target, content.result)
+                )
+            self._get_mustwhite()
         self.talk_list_head = len(game_info.talk_list)  # All done.
 
     def talk(self) -> Content:
         # Choose an agent to be voted for while talking.
         #
         # The list of fake seers that reported me as a werewolf.
-        fake_seers: List[Agent] = [j.agent for j in self.divination_reports
-                                   if j.target == self.me and j.result == Species.WEREWOLF]
+        fake_seers: List[Agent] = [
+            j.agent
+            for j in self.divination_reports
+            if j.target == self.me and j.result == Species.WEREWOLF
+        ]
         # Vote for one of the alive agents that were judged as werewolves by non-fake seers.
-        reported_wolves: List[Agent] = [j.target for j in self.divination_reports
-                                        if j.agent not in fake_seers and j.result == Species.WEREWOLF]
+        reported_wolves: List[Agent] = [
+            j.target
+            for j in self.divination_reports
+            if j.agent not in fake_seers and j.result == Species.WEREWOLF
+        ]
         candidates: List[Agent] = self.get_alive_others(reported_wolves)
         # Vote for one of the alive fake seers if there are no candidates.
         if not candidates:
@@ -183,3 +209,57 @@ class SampleVillager(AbstractPlayer):
 
     def finish(self) -> None:
         pass
+
+    def _get_mustwhite(self) -> List[Agent]:
+        """Create a list of confirmed 'white' agents (innocent) based on divination results
+        and ensure to include agents confirmed by all Seers."""
+        white: List[Agent] = []
+
+        # Count the number of COs for Seer
+        seer_candidates = [
+            agent for agent, role in self.comingout_map.items() if role == Role.SEER
+        ]
+
+        # Create a dictionary to count the number of white confirmations for each agent
+        white_confirmations = {}
+
+        # If there are Seers, check their divination results
+        for seer in seer_candidates:
+            for report in self.divination_reports:
+                if report.agent == seer and report.result == Species.HUMAN:
+                    # Count confirmations for the target
+                    white_confirmations[report.target] = white_confirmations.get(report.target, 0) + 1
+
+        # Add to white list if confirmed by all Seers
+        if seer_candidates:  # If there are any Seers
+            for target, count in white_confirmations.items():
+                if count == len(seer_candidates):  # Confirmed by all Seers
+                    white.append(target)
+
+        # If there is exactly one Seer, they are automatically white
+        if len(seer_candidates) == 1:
+            white.append(seer_candidates[0])
+
+        # Count the number of COs for Medium
+        medium_candidates = [
+            agent for agent, role in self.comingout_map.items() if role == Role.MEDIUM
+        ]
+
+        # If there is exactly one Medium, they are automatically white
+        if len(medium_candidates) == 1:
+            white.append(medium_candidates[0])
+
+        # Remove duplicates and return the list of confirmed white agents
+        self.must_white = list(set(white))
+
+        # Log the confirmed white agents
+        try:
+            with open("../aiwolf24/playground/log.txt", "a") as file:
+                if self.must_white:
+                    file.write(f"Confirmed white agents: {self.must_white[:]}\n")
+                else:
+                    file.write("NO_WHITE.")
+        except Exception as e:
+            print(f"Error writing to log file: {e}")
+
+        return self.must_white
